@@ -466,7 +466,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     set({ savedSignatures: nextSignatures });
   },
 
-  deleteSavedSignature: (id) => {
+    deleteSavedSignature: (id) => {
     const state = get();
     const nextSignatures = state.savedSignatures.filter((s) => s.id !== id);
     const payload = {
@@ -479,6 +479,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       stampAnnotations: state.stampAnnotations,
       savedSignatures: nextSignatures,
     };
+
+    writeLocalState(payload);
+    void saveToSupabase(payload);
+    set({ savedSignatures: nextSignatures });
+  },
 
   setSelectedAnnotationId: (selectedAnnotationId) => set({ selectedAnnotationId }),
 
