@@ -91,6 +91,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   activePenWidth: 3,
   activeStampPreset: "APPROVED",
   activeSignatureId: null,
+  selectedAnnotationId: null,
 
   theme: "dark",
   activeDocumentId: null,
