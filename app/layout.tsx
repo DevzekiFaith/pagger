@@ -26,8 +26,11 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${outfit.variable} ${geistMono.variable} h-full antialiased dark`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col transition-colors duration-300 ease-in-out">{children}</body>
+      <body className="min-h-full flex flex-col transition-colors duration-300 ease-in-out" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }
