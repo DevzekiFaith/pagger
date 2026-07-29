@@ -18,6 +18,7 @@ import {
   X,
   Plus,
   RotateCcw,
+  Laptop,
 } from "lucide-react";
 import { useReaderStore } from "@/hooks/use-reader-store";
 import type { StudyColor } from "@/lib/types";
@@ -88,6 +89,35 @@ export function ReaderApp() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docContainerRef = useRef<HTMLDivElement>(null);
   const [docBounds, setDocBounds] = useState({ width: 1000, height: 1200 });
+
+  // PWA Application Installation State
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      if (choice.outcome === "accepted") {
+        setDeferredInstallPrompt(null);
+      }
+    } else {
+      alert(
+        "Install Pagger as a Standalone Application:\n\n" +
+          "• Windows / Chrome / Edge: Click the 'Install Pagger' icon in your browser URL address bar or 3-dots menu -> 'Install page as app'.\n" +
+          "• Mac / Safari: Click File / Share -> 'Add to Dock'.\n" +
+          "• iPhone / Android: Tap Share -> 'Add to Home Screen'."
+      );
+    }
+  };
 
   const handleSidebarResizeMove = (e: React.PointerEvent) => {
     if (isResizingSidebar) {
@@ -849,6 +879,16 @@ export function ReaderApp() {
           title="Toggle Theme"
         >
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
+
+        {/* Install Desktop / Mobile App */}
+        <button
+          onClick={handleInstallApp}
+          className="flex h-10 items-center gap-1.5 rounded-full px-3 text-xs font-semibold bg-indigo-950/60 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/60 transition"
+          title="Install Pagger as Desktop/Mobile Application"
+        >
+          <Laptop size={14} />
+          <span className="hidden md:inline">Install App</span>
         </button>
 
         <div className="mx-1 h-6 w-px bg-zinc-300/50 dark:bg-zinc-700/50" />

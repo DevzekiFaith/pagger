@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Outfit, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -12,9 +12,23 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  themeColor: "#4f46e5",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
 export const metadata: Metadata = {
-  title: "Pagger | Minimal Document Reader",
-  description: "Focused document reading, notes, highlights, and bookmarks in one place.",
+  title: "Pagger | PDF & Document Reader Workspace",
+  description: "Focused document reading, stylus ink drawing, notes, highlights, e-signatures, and study tools in one place.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Pagger Workspace",
+  },
 };
 
 export default function RootLayout({
