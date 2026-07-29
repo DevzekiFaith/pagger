@@ -81,11 +81,28 @@ export function ReaderApp() {
   const [activeStudyTab, setActiveStudyTab] = useState<"dictionary" | "concordance" | "notes">("dictionary");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(380);
+  const [isResizingSidebar, setIsResizingSidebar] = useState<"library" | "study" | null>(null);
   
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docContainerRef = useRef<HTMLDivElement>(null);
   const [docBounds, setDocBounds] = useState({ width: 1000, height: 1200 });
+
+  const handleSidebarResizeMove = (e: React.PointerEvent) => {
+    if (!isResizingSidebar) return;
+    if (isResizingSidebar === "library") {
+      const newW = Math.max(280, Math.min(650, e.clientX));
+      setSidebarWidth(newW);
+    } else if (isResizingSidebar === "study") {
+      const newW = Math.max(280, Math.min(650, window.innerWidth - e.clientX));
+      setSidebarWidth(newW);
+    }
+  };
+
+  const handleSidebarResizeEnd = () => {
+    setIsResizingSidebar(null);
+  };
 
   useEffect(() => {
     const el = docContainerRef.current;
@@ -343,7 +360,14 @@ export function ReaderApp() {
   }
 
   return (
-    <div ref={containerRef} className="relative h-[100dvh] w-full overflow-hidden bg-[#f8fafc] dark:bg-[#0f172a] transition-colors duration-500 font-sans">
+    <div
+      ref={containerRef}
+      onPointerMove={handleSidebarResizeMove}
+      onPointerUp={handleSidebarResizeEnd}
+      className={`relative h-[100dvh] w-full overflow-hidden bg-[#f8fafc] dark:bg-[#0f172a] transition-colors duration-500 font-sans ${
+        isResizingSidebar ? "select-none cursor-col-resize" : ""
+      }`}
+    >
       
       {/* 1. IMMERSIVE CANVAS */}
       <main className="absolute inset-0 z-0 flex items-start justify-center overflow-auto pb-32">
@@ -413,10 +437,19 @@ export function ReaderApp() {
 
       {/* 2. FLOATING OVERLAYS (LIBRARY) */}
       <aside
-        className={`absolute inset-x-2 top-2 bottom-24 z-40 flex flex-col overflow-hidden rounded-3xl border border-white/20 bg-white/70 shadow-2xl backdrop-blur-2xl transition-transform duration-500 ease-in-out dark:border-zinc-800/50 dark:bg-zinc-950/70 sm:bottom-4 lg:w-[380px] lg:bottom-4 ${
+        style={{ width: typeof window !== "undefined" && window.innerWidth >= 1024 ? `${sidebarWidth}px` : undefined }}
+        className={`absolute inset-x-2 top-2 bottom-24 z-40 flex flex-col overflow-hidden rounded-3xl border border-white/20 bg-white/70 shadow-2xl backdrop-blur-2xl transition-transform duration-500 ease-in-out dark:border-zinc-800/50 dark:bg-zinc-950/70 sm:bottom-4 lg:bottom-4 ${
           isLibraryOpen ? "translate-x-0" : "-translate-x-[110%]"
         }`}
       >
+        {/* Right Resizable Drag Handle */}
+        <div
+          onPointerDown={() => setIsResizingSidebar("library")}
+          className="hidden lg:block absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-indigo-500/50 transition z-50 group"
+          title="Drag to resize panel"
+        >
+          <div className="h-full w-0.5 bg-indigo-500/30 group-hover:bg-indigo-500 mx-auto" />
+        </div>
         <div className="flex items-center justify-between border-b border-zinc-200/50 p-5 dark:border-zinc-800/50">
           <div className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-indigo-500" />
@@ -505,10 +538,19 @@ export function ReaderApp() {
 
       {/* 3. FLOATING OVERLAYS (STUDY TOOLS) */}
       <aside
-        className={`absolute inset-x-2 top-2 bottom-24 z-40 flex flex-col overflow-hidden rounded-3xl border border-white/20 bg-white/70 shadow-2xl backdrop-blur-2xl transition-transform duration-500 ease-in-out dark:border-zinc-800/50 dark:bg-zinc-950/70 sm:bottom-4 lg:w-[380px] lg:bottom-4 lg:left-auto lg:right-4 ${
+        style={{ width: typeof window !== "undefined" && window.innerWidth >= 1024 ? `${sidebarWidth}px` : undefined }}
+        className={`absolute inset-x-2 top-2 bottom-24 z-40 flex flex-col overflow-hidden rounded-3xl border border-white/20 bg-white/70 shadow-2xl backdrop-blur-2xl transition-transform duration-500 ease-in-out dark:border-zinc-800/50 dark:bg-zinc-950/70 sm:bottom-4 lg:bottom-4 lg:left-auto lg:right-4 ${
           isStudyOpen ? "translate-x-0" : "translate-x-[110%]"
         }`}
       >
+        {/* Left Resizable Drag Handle */}
+        <div
+          onPointerDown={() => setIsResizingSidebar("study")}
+          className="hidden lg:block absolute left-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-indigo-500/50 transition z-50 group"
+          title="Drag to resize panel"
+        >
+          <div className="h-full w-0.5 bg-indigo-500/30 group-hover:bg-indigo-500 mx-auto" />
+        </div>
         <div className="flex items-center justify-between border-b border-zinc-200/50 p-5 dark:border-zinc-800/50">
           <div className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-indigo-500" />

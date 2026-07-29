@@ -32,6 +32,7 @@ type ReaderState = {
   activePenWidth: number;
   activeStampPreset: StampPreset;
   activeSignatureId: string | null;
+  selectedAnnotationId: string | null;
 
   theme: "dark" | "light";
   activeDocumentId: string | null;
@@ -47,6 +48,7 @@ type ReaderState = {
   setPenWidth: (width: number) => void;
   setStampPreset: (preset: StampPreset) => void;
   setActiveSignatureId: (id: string | null) => void;
+  setSelectedAnnotationId: (id: string | null) => void;
 
   addDocument: (title: string, content: string, mimeType?: string, fileDataUrl?: string) => void;
   addBookmark: (label: string, color: StudyColor) => void;
@@ -59,13 +61,17 @@ type ReaderState = {
   clearDrawingStrokes: () => void;
 
   addStickyNote: (x: number, y: number, content: string, color?: StudyColor) => void;
+  updateStickyNote: (id: string, updates: Partial<StickyNotePin>) => void;
   deleteStickyNote: (id: string) => void;
 
   addStampAnnotation: (x: number, y: number, width: number, height: number, type: "preset" | "signature", presetLabel?: StampPreset, signatureDataUrl?: string) => void;
+  updateStampAnnotation: (id: string, updates: Partial<StampAnnotation>) => void;
   deleteStampAnnotation: (id: string) => void;
 
   addSavedSignature: (title: string, dataUrl: string) => void;
   deleteSavedSignature: (id: string) => void;
+
+  saveDocumentNow: () => void;
 };
 
 const isoNow = () => new Date().toISOString();
@@ -474,9 +480,61 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       savedSignatures: nextSignatures,
     };
 
+  setSelectedAnnotationId: (selectedAnnotationId) => set({ selectedAnnotationId }),
+
+  updateStickyNote: (id, updates) => {
+    const state = get();
+    const nextSticky = state.stickyNotes.map((s) => (s.id === id ? { ...s, ...updates } : s));
+    const payload = {
+      documents: state.documents,
+      bookmarks: state.bookmarks,
+      highlights: state.highlights,
+      notes: state.notes,
+      drawingStrokes: state.drawingStrokes,
+      stickyNotes: nextSticky,
+      stampAnnotations: state.stampAnnotations,
+      savedSignatures: state.savedSignatures,
+    };
+
     writeLocalState(payload);
     void saveToSupabase(payload);
-    set({ savedSignatures: nextSignatures });
+    set({ stickyNotes: nextSticky });
+  },
+
+  updateStampAnnotation: (id, updates) => {
+    const state = get();
+    const nextStamps = state.stampAnnotations.map((s) => (s.id === id ? { ...s, ...updates } : s));
+    const payload = {
+      documents: state.documents,
+      bookmarks: state.bookmarks,
+      highlights: state.highlights,
+      notes: state.notes,
+      drawingStrokes: state.drawingStrokes,
+      stickyNotes: state.stickyNotes,
+      stampAnnotations: nextStamps,
+      savedSignatures: state.savedSignatures,
+    };
+
+    writeLocalState(payload);
+    void saveToSupabase(payload);
+    set({ stampAnnotations: nextStamps });
+  },
+
+  saveDocumentNow: () => {
+    const state = get();
+    const payload = {
+      documents: state.documents,
+      bookmarks: state.bookmarks,
+      highlights: state.highlights,
+      notes: state.notes,
+      drawingStrokes: state.drawingStrokes,
+      stickyNotes: state.stickyNotes,
+      stampAnnotations: state.stampAnnotations,
+      savedSignatures: state.savedSignatures,
+    };
+
+    writeLocalState(payload);
+    void saveToSupabase(payload);
   },
 }));
 

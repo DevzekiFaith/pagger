@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { MessageSquare, X, Trash2, Send } from "lucide-react";
+import { MessageSquare, X, Trash2, Send, Move, RotateCcw } from "lucide-react";
 import { useReaderStore } from "@/hooks/use-reader-store";
 import type { DrawingStroke, Point, StampPreset, StudyColor } from "@/lib/types";
 
@@ -17,6 +17,20 @@ export function AnnotationCanvas() {
   const [selectedStickyColor, setSelectedStickyColor] = useState<StudyColor>("yellow");
   const [openedStickyId, setOpenedStickyId] = useState<string | null>(null);
 
+  // Selection & Resize state for Stamps and Signatures
+  const [selectedStampId, setSelectedStampId] = useState<string | null>(null);
+  const [dragState, setDragState] = useState<{
+    stampId: string;
+    action: "move" | "resize";
+    handle?: "tl" | "tr" | "bl" | "br" | "n" | "s" | "e" | "w";
+    startX: number;
+    startY: number;
+    initialX: number;
+    initialY: number;
+    initialW: number;
+    initialH: number;
+  } | null>(null);
+
   const {
     activeDocumentId,
     activeToolMode,
@@ -30,11 +44,13 @@ export function AnnotationCanvas() {
     savedSignatures,
     addDrawingStroke,
     addStickyNote,
+    updateStickyNote,
     deleteStickyNote,
     addStampAnnotation,
+    updateStampAnnotation,
+    deleteStampAnnotation,
   } = useReaderStore();
 
-  // ResizeObserver for dynamic container dimension tracking
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -75,24 +91,24 @@ export function AnnotationCanvas() {
 
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
 
-  const drawPresetStamp = (ctx: CanvasRenderingContext2D, x: number, y: number, preset: StampPreset) => {
+  const drawPresetStamp = (ctx: CanvasRenderingContext2D, stamp: (typeof activeStamps)[0]) => {
+    const { x, y, width: w, height: h, presetLabel: preset } = stamp;
+    if (!preset) return;
+
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(-0.06);
-
-    const w = 150;
-    const h = 46;
 
     const color = preset === "APPROVED" ? "#10b981" : preset === "CONFIDENTIAL" ? "#ef4444" : "#f59e0b";
     ctx.strokeStyle = color;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = Math.max(2, w / 35);
     ctx.strokeRect(-w / 2, -h / 2, w, h);
 
     ctx.lineWidth = 1.5;
     ctx.setLineDash([5, 3]);
     ctx.strokeRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8);
 
-    ctx.font = "900 15px sans-serif";
+    const fontSize = Math.max(10, Math.round(h * 0.35));
+    ctx.font = `900 ${fontSize}px sans-serif`;
     ctx.fillStyle = color;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -101,7 +117,10 @@ export function AnnotationCanvas() {
     ctx.restore();
   };
 
-  const drawSignatureStamp = (ctx: CanvasRenderingContext2D, x: number, y: number, dataUrl: string) => {
+  const drawSignatureStamp = (ctx: CanvasRenderingContext2D, stamp: (typeof activeStamps)[0]) => {
+    const { x, y, width: w, height: h, signatureDataUrl: dataUrl } = stamp;
+    if (!dataUrl) return;
+
     let img = imageCacheRef.current.get(dataUrl);
     if (!img) {
       img = new Image();
@@ -112,7 +131,7 @@ export function AnnotationCanvas() {
 
     if (img.complete && img.naturalWidth > 0) {
       ctx.save();
-      ctx.drawImage(img, x - 75, y - 30, 150, 60);
+      ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
       ctx.restore();
     }
   };
@@ -259,10 +278,10 @@ export function AnnotationCanvas() {
 
     // 3. Draw Stamps & Signatures
     activeStamps.forEach((stamp) => {
-      if (stamp.type === "preset" && stamp.presetLabel) {
-        drawPresetStamp(ctx, stamp.x, stamp.y, stamp.presetLabel);
-      } else if (stamp.type === "signature" && stamp.signatureDataUrl) {
-        drawSignatureStamp(ctx, stamp.x, stamp.y, stamp.signatureDataUrl);
+      if (stamp.type === "preset") {
+        drawPresetStamp(ctx, stamp);
+      } else if (stamp.type === "signature") {
+        drawSignatureStamp(ctx, stamp);
       }
     });
 
@@ -273,25 +292,52 @@ export function AnnotationCanvas() {
     redrawCanvas();
   }, [redrawCanvas]);
 
-  const getCoordinates = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
+  const getCoordinates = (e: React.PointerEvent): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     return {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
-      pressure: e.pointerType === "pen" && e.pressure ? e.pressure : 0.5,
+      pressure: (e as React.PointerEvent<HTMLCanvasElement>).pointerType === "pen" && (e as React.PointerEvent<HTMLCanvasElement>).pressure ? (e as React.PointerEvent<HTMLCanvasElement>).pressure : 0.5,
     };
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (activeToolMode === "select") return;
+    const pt = getCoordinates(e);
+
+    if (activeToolMode === "select") {
+      // Check if user clicked on an existing stamp to select/move/resize it
+      const clickedStamp = [...activeStamps].reverse().find((s) => {
+        const left = s.x - s.width / 2;
+        const right = s.x + s.width / 2;
+        const top = s.y - s.height / 2;
+        const bottom = s.y + s.height / 2;
+        return pt.x >= left && pt.x <= right && pt.y >= top && pt.y <= bottom;
+      });
+
+      if (clickedStamp) {
+        setSelectedStampId(clickedStamp.id);
+        setDragState({
+          stampId: clickedStamp.id,
+          action: "move",
+          startX: pt.x,
+          startY: pt.y,
+          initialX: clickedStamp.x,
+          initialY: clickedStamp.y,
+          initialW: clickedStamp.width,
+          initialH: clickedStamp.height,
+        });
+        return;
+      }
+
+      setSelectedStampId(null);
+      return;
+    }
 
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.setPointerCapture(e.pointerId);
-
-    const pt = getCoordinates(e);
 
     if (activeToolMode === "sticky") {
       setActiveStickyInput({ x: pt.x, y: pt.y });
@@ -302,10 +348,10 @@ export function AnnotationCanvas() {
       if (activeSignatureId) {
         const sig = savedSignatures.find((s) => s.id === activeSignatureId);
         if (sig) {
-          addStampAnnotation(pt.x, pt.y, 150, 60, "signature", undefined, sig.dataUrl);
+          addStampAnnotation(pt.x, pt.y, 160, 70, "signature", undefined, sig.dataUrl);
         }
       } else {
-        addStampAnnotation(pt.x, pt.y, 150, 46, "preset", activeStampPreset);
+        addStampAnnotation(pt.x, pt.y, 160, 52, "preset", activeStampPreset);
       }
       return;
     }
@@ -314,18 +360,62 @@ export function AnnotationCanvas() {
     setCurrentPoints([pt]);
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleGlobalPointerMove = (e: React.PointerEvent) => {
+    if (dragState) {
+      const pt = getCoordinates(e);
+      const dx = pt.x - dragState.startX;
+      const dy = pt.y - dragState.startY;
+
+      if (dragState.action === "move") {
+        updateStampAnnotation(dragState.stampId, {
+          x: Math.round(dragState.initialX + dx),
+          y: Math.round(dragState.initialY + dy),
+        });
+      } else if (dragState.action === "resize" && dragState.handle) {
+        let newW = dragState.initialW;
+        let newH = dragState.initialH;
+        let newX = dragState.initialX;
+        let newY = dragState.initialY;
+
+        if (dragState.handle.includes("e")) newW = Math.max(40, dragState.initialW + dx);
+        if (dragState.handle.includes("w")) {
+          const w = Math.max(40, dragState.initialW - dx);
+          newX = dragState.initialX + (dragState.initialW - w) / 2;
+          newW = w;
+        }
+        if (dragState.handle.includes("s")) newH = Math.max(25, dragState.initialH + dy);
+        if (dragState.handle.includes("n")) {
+          const h = Math.max(25, dragState.initialH - dy);
+          newY = dragState.initialY + (dragState.initialH - h) / 2;
+          newH = h;
+        }
+
+        updateStampAnnotation(dragState.stampId, {
+          x: Math.round(newX),
+          y: Math.round(newY),
+          width: Math.round(newW),
+          height: Math.round(newH),
+        });
+      }
+      return;
+    }
+
     if (!isPointerDown) return;
     const pt = getCoordinates(e);
     setCurrentPoints((prev) => [...prev, pt]);
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleGlobalPointerUp = (e: React.PointerEvent) => {
+    if (dragState) {
+      setDragState(null);
+      return;
+    }
+
     if (!isPointerDown) return;
     const canvas = canvasRef.current;
-    if (canvas && e.pointerId) {
+    if (canvas && (e as React.PointerEvent<HTMLCanvasElement>).pointerId) {
       try {
-        canvas.releasePointerCapture(e.pointerId);
+        canvas.releasePointerCapture((e as React.PointerEvent<HTMLCanvasElement>).pointerId);
       } catch {}
     }
 
@@ -350,18 +440,101 @@ export function AnnotationCanvas() {
     setStickyNoteText("");
   };
 
+  const selectedStamp = useMemo(
+    () => activeStamps.find((s) => s.id === selectedStampId),
+    [activeStamps, selectedStampId]
+  );
+
   return (
-    <div ref={containerRef} className="absolute inset-0 z-20 pointer-events-none w-full h-full">
+    <div
+      ref={containerRef}
+      onPointerMove={handleGlobalPointerMove}
+      onPointerUp={handleGlobalPointerUp}
+      className="absolute inset-0 z-20 pointer-events-none w-full h-full"
+    >
       <canvas
         ref={canvasRef}
         style={{ width: "100%", height: "100%" }}
         onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
         className={`absolute inset-0 w-full h-full touch-none ${
-          activeToolMode === "select" ? "pointer-events-none" : "cursor-crosshair pointer-events-auto z-20"
+          activeToolMode === "select" ? "pointer-events-auto cursor-default" : "cursor-crosshair pointer-events-auto z-20"
         }`}
       />
+
+      {/* Interactive Selection Bounding Box & 8 Stretch Handles */}
+      {selectedStamp && (
+        <div
+          style={{
+            left: `${selectedStamp.x}px`,
+            top: `${selectedStamp.y}px`,
+            width: `${selectedStamp.width}px`,
+            height: `${selectedStamp.height}px`,
+          }}
+          className="absolute -translate-x-1/2 -translate-y-1/2 z-40 border-2 border-indigo-500 border-dashed rounded-lg pointer-events-auto group bg-indigo-500/10 cursor-move"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            const pt = getCoordinates(e);
+            setDragState({
+              stampId: selectedStamp.id,
+              action: "move",
+              startX: pt.x,
+              startY: pt.y,
+              initialX: selectedStamp.x,
+              initialY: selectedStamp.y,
+              initialW: selectedStamp.width,
+              initialH: selectedStamp.height,
+            });
+          }}
+        >
+          {/* Delete Button Header */}
+          <div className="absolute -top-9 right-0 flex items-center gap-1 bg-slate-900 border border-slate-700 px-2 py-1 rounded-lg text-xs text-white shadow-lg">
+            <span className="text-[10px] font-bold text-indigo-400 uppercase">Selected</span>
+            <button
+              type="button"
+              onClick={() => {
+                deleteStampAnnotation(selectedStamp.id);
+                setSelectedStampId(null);
+              }}
+              className="text-rose-400 hover:text-rose-300 ml-1"
+              title="Delete Object"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* 8 Stretch & Scale Handles (Corners + Sides) */}
+          {[
+            { handle: "tl", pos: "-left-2 -top-2 cursor-nwse-resize" },
+            { handle: "tr", pos: "-right-2 -top-2 cursor-nesw-resize" },
+            { handle: "bl", pos: "-left-2 -bottom-2 cursor-nesw-resize" },
+            { handle: "br", pos: "-right-2 -bottom-2 cursor-nwse-resize" },
+            { handle: "n", pos: "left-1/2 -top-2 -translate-x-1/2 cursor-ns-resize" },
+            { handle: "s", pos: "left-1/2 -bottom-2 -translate-x-1/2 cursor-ns-resize" },
+            { handle: "w", pos: "-left-2 top-1/2 -translate-y-1/2 cursor-ew-resize" },
+            { handle: "e", pos: "-right-2 top-1/2 -translate-y-1/2 cursor-ew-resize" },
+          ].map(({ handle, pos }) => (
+            <div
+              key={handle}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                const pt = getCoordinates(e);
+                setDragState({
+                  stampId: selectedStamp.id,
+                  action: "resize",
+                  handle: handle as any,
+                  startX: pt.x,
+                  startY: pt.y,
+                  initialX: selectedStamp.x,
+                  initialY: selectedStamp.y,
+                  initialW: selectedStamp.width,
+                  initialH: selectedStamp.height,
+                });
+              }}
+              className={`absolute h-3.5 w-3.5 rounded-full border-2 border-indigo-600 bg-white shadow-md transition hover:scale-125 ${pos}`}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Render Sticky Note Pins Overlay */}
       <div className="absolute inset-0 z-30 pointer-events-none w-full h-full overflow-hidden">

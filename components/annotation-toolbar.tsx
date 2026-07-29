@@ -17,6 +17,8 @@ import {
   PenTool,
   CheckCircle2,
   ChevronDown,
+  Save,
+  Check,
 } from "lucide-react";
 import { useReaderStore } from "@/hooks/use-reader-store";
 import type { StampPreset } from "@/lib/types";
@@ -52,16 +54,29 @@ export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarPro
     setActiveSignatureId,
     undoDrawingStroke,
     clearDrawingStrokes,
+    saveDocumentNow,
   } = useReaderStore();
 
   const [isShapesOpen, setIsShapesOpen] = useState(false);
   const [isStampsOpen, setIsStampsOpen] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
 
-  // Global Keyboard Shortcuts (P = Pen, H = Highlighter, E = Eraser, Esc = Select, N = Sticky)
+  const handleManualSave = () => {
+    saveDocumentNow();
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2000);
+  };
+
+  // Global Keyboard Shortcuts (P = Pen, H = Highlighter, E = Eraser, Esc = Select, N = Sticky, Ctrl+S = Save)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore when typing inside inputs or textareas
       if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        handleManualSave();
+        return;
+      }
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -107,10 +122,10 @@ export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarPro
   const selectHighlighter = () => {
     setToolMode("highlighter");
     if (activePenColor === "#0f172a" || activePenColor === "#ef4444") {
-      setPenColor("#f59e0b"); // Default vibrant yellow marker
+      setPenColor("#f59e0b");
     }
     if (activePenWidth < 8) {
-      setPenWidth(16); // Default comfortable highlighter thickness
+      setPenWidth(16);
     }
   };
 
@@ -126,7 +141,7 @@ export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarPro
         <button
           type="button"
           onClick={() => setToolMode("select")}
-          title="Select / Text Navigation (Esc)"
+          title="Select / Resize & Move Objects (Esc)"
           className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
             activeToolMode === "select"
               ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/40"
@@ -374,8 +389,22 @@ export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarPro
         </div>
       )}
 
-      {/* Canvas Utilities: Undo & Clear */}
+      {/* Canvas Utilities: Save, Undo & Clear */}
       <div className="flex items-center gap-1 border-l border-slate-800 pl-2">
+        <button
+          type="button"
+          onClick={handleManualSave}
+          title="Save Document & Annotations (Ctrl+S)"
+          className={`flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold transition ${
+            justSaved
+              ? "bg-emerald-500 text-slate-950 font-bold"
+              : "bg-indigo-600/80 text-white hover:bg-indigo-600"
+          }`}
+        >
+          {justSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+          <span className="hidden sm:inline">{justSaved ? "Saved!" : "Save"}</span>
+        </button>
+
         <button
           type="button"
           onClick={undoDrawingStroke}
