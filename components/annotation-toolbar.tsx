@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Save,
   Check,
+  Download,
 } from "lucide-react";
 import { useReaderStore } from "@/hooks/use-reader-store";
 import type { StampPreset } from "@/lib/types";
@@ -38,9 +39,10 @@ const STAMP_PRESETS: StampPreset[] = ["APPROVED", "CONFIDENTIAL", "DRAFT", "REVI
 
 interface AnnotationToolbarProps {
   onOpenSignatureModal: () => void;
+  onDownload?: () => void;
 }
 
-export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarProps) {
+export function AnnotationToolbar({ onOpenSignatureModal, onDownload }: AnnotationToolbarProps) {
   const {
     activeToolMode,
     activePenColor,
@@ -404,6 +406,18 @@ export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarPro
           {justSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
           <span className="hidden sm:inline">{justSaved ? "Saved!" : "Save"}</span>
         </button>
+
+        {onDownload && (
+          <button
+            type="button"
+            onClick={onDownload}
+            title="Download Document"
+            className="flex items-center gap-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 text-xs font-semibold transition"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Download</span>
+          </button>
+        )}
 
         <button
           type="button"
