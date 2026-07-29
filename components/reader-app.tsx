@@ -87,6 +87,7 @@ export function ReaderApp() {
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docContainerRef = useRef<HTMLDivElement>(null);
+  const [docBounds, setDocBounds] = useState({ width: 1000, height: 1200 });
 
   // Document Canvas Stretching State
   const [customCanvasWidth, setCustomCanvasWidth] = useState<number | null>(null);
