@@ -16,14 +16,14 @@ import {
   Moon,
   Sun,
   X,
-  Plus
+  Plus,
+  RotateCcw,
 } from "lucide-react";
 import { useReaderStore } from "@/hooks/use-reader-store";
 import type { StudyColor } from "@/lib/types";
 import { AnnotationToolbar } from "@/components/annotation-toolbar";
 import { AnnotationCanvas } from "@/components/annotation-canvas";
 import { SignatureModal } from "@/components/signature-modal";
-
 
 const COLOR_MAP: Record<StudyColor, string> = {
   yellow: "bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-800",
@@ -83,25 +83,61 @@ export function ReaderApp() {
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(380);
   const [isResizingSidebar, setIsResizingSidebar] = useState<"library" | "study" | null>(null);
-  
+
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docContainerRef = useRef<HTMLDivElement>(null);
-  const [docBounds, setDocBounds] = useState({ width: 1000, height: 1200 });
+
+  // Document Canvas Stretching State
+  const [customCanvasWidth, setCustomCanvasWidth] = useState<number | null>(null);
+  const [customCanvasHeight, setCustomCanvasHeight] = useState<number | null>(null);
+  const [isResizingCanvas, setIsResizingCanvas] = useState<"width" | "height" | "both" | null>(null);
+  const [canvasResizeStart, setCanvasResizeStart] = useState<{ startX: number; startY: number; initialW: number; initialH: number } | null>(null);
+
+  const startCanvasResize = (e: React.PointerEvent, mode: "width" | "height" | "both") => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = docContainerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setIsResizingCanvas(mode);
+    setCanvasResizeStart({
+      startX: e.clientX,
+      startY: e.clientY,
+      initialW: rect.width,
+      initialH: rect.height,
+    });
+  };
 
   const handleSidebarResizeMove = (e: React.PointerEvent) => {
-    if (!isResizingSidebar) return;
-    if (isResizingSidebar === "library") {
-      const newW = Math.max(280, Math.min(650, e.clientX));
-      setSidebarWidth(newW);
-    } else if (isResizingSidebar === "study") {
-      const newW = Math.max(280, Math.min(650, window.innerWidth - e.clientX));
-      setSidebarWidth(newW);
+    if (isResizingSidebar) {
+      if (isResizingSidebar === "library") {
+        const newW = Math.max(280, Math.min(650, e.clientX));
+        setSidebarWidth(newW);
+      } else if (isResizingSidebar === "study") {
+        const newW = Math.max(280, Math.min(650, window.innerWidth - e.clientX));
+        setSidebarWidth(newW);
+      }
+      return;
+    }
+
+    if (isResizingCanvas && canvasResizeStart) {
+      const dx = e.clientX - canvasResizeStart.startX;
+      const dy = e.clientY - canvasResizeStart.startY;
+
+      if (isResizingCanvas === "width" || isResizingCanvas === "both") {
+        setCustomCanvasWidth(Math.max(400, Math.min(2600, Math.round(canvasResizeStart.initialW + dx))));
+      }
+      if (isResizingCanvas === "height" || isResizingCanvas === "both") {
+        setCustomCanvasHeight(Math.max(400, Math.min(3500, Math.round(canvasResizeStart.initialH + dy))));
+      }
     }
   };
 
   const handleSidebarResizeEnd = () => {
     setIsResizingSidebar(null);
+    setIsResizingCanvas(null);
+    setCanvasResizeStart(null);
   };
 
   useEffect(() => {
@@ -256,9 +292,7 @@ export function ReaderApp() {
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen().catch((err) => {
-        console.log(`Error attempting to enable fullscreen: ${err.message}`);
-      });
+      containerRef.current?.requestFullscreen().catch(() => {});
       setIsFullscreen(true);
     } else {
       document.exitFullscreen();
@@ -392,10 +426,12 @@ export function ReaderApp() {
           <div className="w-full min-h-[85vh] p-2 sm:p-4 lg:p-8 flex justify-center">
             <div
               ref={docContainerRef}
-              className="relative w-full max-w-7xl shadow-2xl rounded-2xl overflow-hidden border border-zinc-200/50 dark:border-white/10 transition-transform duration-300 origin-top flex flex-col min-h-[85vh]"
+              className="relative shadow-2xl rounded-2xl border border-zinc-200/50 dark:border-white/10 transition-transform duration-300 origin-top flex flex-col min-h-[85vh] group bg-white dark:bg-zinc-950"
               style={{
                 transform: `scale(${zoom / 100})`,
-                width: `${10000 / zoom}%`,
+                width: customCanvasWidth ? `${customCanvasWidth}px` : `${10000 / zoom}%`,
+                maxWidth: customCanvasWidth ? "none" : "80rem",
+                minHeight: customCanvasHeight ? `${customCanvasHeight}px` : "85vh",
               }}
             >
               <iframe
@@ -404,10 +440,41 @@ export function ReaderApp() {
                 className="w-full flex-1 min-h-[85vh] bg-white dark:bg-zinc-950"
               />
               <AnnotationCanvas />
+
+              {/* Canvas Stretch Handles */}
+              <div
+                onPointerDown={(e) => startCanvasResize(e, "width")}
+                className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-indigo-500/40 transition-colors z-40 group-hover:bg-indigo-500/20"
+                title="Drag right edge to stretch canvas width"
+              >
+                <div className="h-12 w-1.5 bg-indigo-500 rounded-full absolute top-1/2 -translate-y-1/2 right-1 opacity-60 group-hover:opacity-100" />
+              </div>
+
+              <div
+                onPointerDown={(e) => startCanvasResize(e, "height")}
+                className="absolute left-0 right-0 bottom-0 h-3 cursor-ns-resize hover:bg-indigo-500/40 transition-colors z-40 group-hover:bg-indigo-500/20"
+                title="Drag bottom edge to stretch canvas height"
+              >
+                <div className="w-12 h-1.5 bg-indigo-500 rounded-full absolute left-1/2 -translate-x-1/2 bottom-1 opacity-60 group-hover:opacity-100" />
+              </div>
+
+              <div
+                onPointerDown={(e) => startCanvasResize(e, "both")}
+                className="absolute -right-2 -bottom-2 h-6 w-6 cursor-nwse-resize rounded-full bg-indigo-600 border-2 border-white shadow-xl transition-transform hover:scale-125 z-50 flex items-center justify-center text-white"
+                title="Drag corner to stretch canvas size"
+              />
             </div>
           </div>
         ) : (
-          <div ref={docContainerRef} className="relative w-full max-w-3xl px-6 py-12 sm:px-12 sm:py-20 min-h-[80vh]">
+          <div
+            ref={docContainerRef}
+            className="relative shadow-2xl rounded-2xl border border-zinc-200/50 dark:border-white/10 bg-white dark:bg-zinc-950 px-6 py-12 sm:px-12 sm:py-20 min-h-[80vh] group"
+            style={{
+              width: customCanvasWidth ? `${customCanvasWidth}px` : "100%",
+              maxWidth: customCanvasWidth ? "none" : "48rem",
+              minHeight: customCanvasHeight ? `${customCanvasHeight}px` : "80vh",
+            }}
+          >
             <article
               className="w-full text-[1.05rem] leading-loose tracking-[0.01em] text-zinc-800 dark:text-zinc-200"
               style={{ fontSize: `${zoom}%` }}
@@ -418,6 +485,29 @@ export function ReaderApp() {
               <div className="whitespace-pre-wrap">{renderedContent}</div>
             </article>
             <AnnotationCanvas />
+
+            {/* Canvas Stretch Handles */}
+            <div
+              onPointerDown={(e) => startCanvasResize(e, "width")}
+              className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-indigo-500/40 transition-colors z-40 group-hover:bg-indigo-500/20"
+              title="Drag right edge to stretch canvas width"
+            >
+              <div className="h-12 w-1.5 bg-indigo-500 rounded-full absolute top-1/2 -translate-y-1/2 right-1 opacity-60 group-hover:opacity-100" />
+            </div>
+
+            <div
+              onPointerDown={(e) => startCanvasResize(e, "height")}
+              className="absolute left-0 right-0 bottom-0 h-3 cursor-ns-resize hover:bg-indigo-500/40 transition-colors z-40 group-hover:bg-indigo-500/20"
+              title="Drag bottom edge to stretch canvas height"
+            >
+              <div className="w-12 h-1.5 bg-indigo-500 rounded-full absolute left-1/2 -translate-x-1/2 bottom-1 opacity-60 group-hover:opacity-100" />
+            </div>
+
+            <div
+              onPointerDown={(e) => startCanvasResize(e, "both")}
+              className="absolute -right-2 -bottom-2 h-6 w-6 cursor-nwse-resize rounded-full bg-indigo-600 border-2 border-white shadow-xl transition-transform hover:scale-125 z-50 flex items-center justify-center text-white"
+              title="Drag corner to stretch canvas size"
+            />
           </div>
         )}
       </main>
@@ -783,6 +873,20 @@ export function ReaderApp() {
           >
             <ZoomIn size={16} />
           </button>
+
+          {(customCanvasWidth || customCanvasHeight) && (
+            <button
+              onClick={() => {
+                setCustomCanvasWidth(null);
+                setCustomCanvasHeight(null);
+              }}
+              className="flex items-center gap-1 rounded-full bg-indigo-600/90 px-3 py-1 text-xs font-semibold text-white shadow-md hover:bg-indigo-500 transition ml-1"
+              title="Reset Canvas Size to Default"
+            >
+              <RotateCcw size={12} />
+              <span>Reset Canvas</span>
+            </button>
+          )}
         </div>
 
         <div className="hidden sm:block mx-1 h-6 w-px bg-zinc-300/50 dark:bg-zinc-700/50" />
