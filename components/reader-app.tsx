@@ -281,6 +281,44 @@ export function ReaderApp() {
     }
   };
 
+  const renderedContent = useMemo(() => {
+    if (!activeDocument?.content) return null;
+    if (!activeHighlights.length) return activeDocument.content;
+
+    const terms = Array.from(new Set(activeHighlights.map((h) => h.selectedText).filter(Boolean)));
+    if (!terms.length) return activeDocument.content;
+
+    const termColorMap = new Map<string, StudyColor>();
+    activeHighlights.forEach((h) => {
+      if (h.selectedText) termColorMap.set(h.selectedText.toLowerCase(), h.color);
+    });
+
+    const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    const regex = new RegExp(`(${escaped})`, "gi");
+    const parts = activeDocument.content.split(regex);
+
+    return parts.map((part, i) => {
+      const color = termColorMap.get(part.toLowerCase());
+      if (color) {
+        const colorClass =
+          color === "yellow"
+            ? "bg-amber-300 text-amber-950 font-semibold px-1 rounded-sm shadow-xs dark:bg-amber-400 dark:text-slate-950"
+            : color === "green"
+            ? "bg-emerald-300 text-emerald-950 font-semibold px-1 rounded-sm shadow-xs dark:bg-emerald-400 dark:text-slate-950"
+            : color === "blue"
+            ? "bg-sky-300 text-sky-950 font-semibold px-1 rounded-sm shadow-xs dark:bg-sky-400 dark:text-slate-950"
+            : "bg-rose-300 text-rose-950 font-semibold px-1 rounded-sm shadow-xs dark:bg-rose-400 dark:text-slate-950";
+
+        return (
+          <mark key={i} className={`${colorClass} inline transition-all`}>
+            {part}
+          </mark>
+        );
+      }
+      return part;
+    });
+  }, [activeDocument?.content, activeHighlights]);
+
   const concordanceRows = (() => {
     if (!activeDocument?.content || !lookupTerm.trim() || activeDocument.mimeType === "application/pdf") {
       return [];
@@ -353,7 +391,7 @@ export function ReaderApp() {
               onTouchEnd={captureSelection}
             >
               <h1 className="mb-8 text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">{activeDocument.title}</h1>
-              <div className="whitespace-pre-wrap">{activeDocument.content}</div>
+              <div className="whitespace-pre-wrap">{renderedContent}</div>
             </article>
             <AnnotationCanvas width={docBounds.width} height={docBounds.height} />
           </div>
