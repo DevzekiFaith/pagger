@@ -5,15 +5,11 @@ import { MessageSquare, X, Trash2, Send } from "lucide-react";
 import { useReaderStore } from "@/hooks/use-reader-store";
 import type { DrawingStroke, Point, StampPreset, StudyColor } from "@/lib/types";
 
-interface AnnotationCanvasProps {
-  width: number;
-  height: number;
-}
-
-export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+export function AnnotationCanvas() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   
+  const [dimensions, setDimensions] = useState({ width: 1000, height: 1000 });
   const [isPointerDown, setIsPointerDown] = useState(false);
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
   const [activeStickyInput, setActiveStickyInput] = useState<{ x: number; y: number } | null>(null);
@@ -38,6 +34,25 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     addStampAnnotation,
   } = useReaderStore();
 
+  // ResizeObserver for dynamic container dimension tracking
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const updateSize = () => {
+      const rect = el.getBoundingClientRect();
+      const w = Math.max(300, Math.round(rect.width));
+      const h = Math.max(300, Math.round(rect.height));
+      setDimensions((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+    };
+
+    updateSize();
+
+    const observer = new ResizeObserver(() => updateSize());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const activeStrokes = useMemo(
     () => drawingStrokes.filter((s) => s.documentId === activeDocumentId),
     [drawingStrokes, activeDocumentId]
@@ -51,7 +66,6 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     [stampAnnotations, activeDocumentId]
   );
 
-  // Helper to convert hex to rgba
   const hexToRgba = (hex: string, alpha: number) => {
     let c = hex.replace("#", "");
     if (c.length === 3) c = c.split("").map((char) => char + char).join("");
@@ -59,7 +73,6 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
   };
 
-  // Image cache for signatures
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
 
   const drawPresetStamp = (ctx: CanvasRenderingContext2D, x: number, y: number, preset: StampPreset) => {
@@ -70,18 +83,15 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     const w = 150;
     const h = 46;
 
-    // Stamp Border
     const color = preset === "APPROVED" ? "#10b981" : preset === "CONFIDENTIAL" ? "#ef4444" : "#f59e0b";
     ctx.strokeStyle = color;
     ctx.lineWidth = 4;
     ctx.strokeRect(-w / 2, -h / 2, w, h);
 
-    // Inner dashed border
     ctx.lineWidth = 1.5;
     ctx.setLineDash([5, 3]);
     ctx.strokeRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8);
 
-    // Stamp Text
     ctx.font = "900 15px sans-serif";
     ctx.fillStyle = color;
     ctx.textAlign = "center";
@@ -115,7 +125,7 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     ctx.lineJoin = "round";
 
     if (stroke.tool === "highlighter") {
-      ctx.strokeStyle = hexToRgba(stroke.color, 0.45);
+      ctx.strokeStyle = hexToRgba(stroke.color, 0.5);
       ctx.lineWidth = Math.max(12, stroke.width * 3.5);
       ctx.globalCompositeOperation = "source-over";
     } else if (stroke.tool === "eraser") {
@@ -132,7 +142,6 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
 
     if (stroke.tool === "pen" || stroke.tool === "highlighter" || stroke.tool === "eraser") {
       if (points.length === 1) {
-        // Single tap dot
         ctx.beginPath();
         ctx.arc(points[0].x, points[0].y, ctx.lineWidth / 2, 0, 2 * Math.PI);
         ctx.fillStyle = ctx.strokeStyle;
@@ -185,13 +194,11 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
       const start = points[0];
       const end = points[points.length - 1];
       
-      // Draw main line
       ctx.beginPath();
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
       ctx.stroke();
 
-      // Draw arrowhead
       const headLength = Math.max(12, stroke.width * 3);
       const angle = Math.atan2(end.y - start.y, end.x - start.x);
       
@@ -213,16 +220,15 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     ctx.restore();
   };
 
-  // Main Canvas Rendering Engine
   const redrawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    const { width, height } = dimensions;
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
     
-    // Set actual display size vs canvas pixel size for retina crispness
     if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
       canvas.width = width * dpr;
       canvas.height = height * dpr;
@@ -261,7 +267,7 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     });
 
     ctx.restore();
-  }, [activeStrokes, isPointerDown, currentPoints, activeToolMode, activePenColor, activePenWidth, activeStamps, activeDocumentId, width, height]);
+  }, [activeStrokes, isPointerDown, currentPoints, activeToolMode, activePenColor, activePenWidth, activeStamps, activeDocumentId, dimensions]);
 
   useEffect(() => {
     redrawCanvas();
@@ -345,27 +351,26 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-full">
+    <div ref={containerRef} className="absolute inset-0 z-20 pointer-events-none w-full h-full">
       <canvas
         ref={canvasRef}
-        style={{ width: `${width}px`, height: `${height}px` }}
+        style={{ width: "100%", height: "100%" }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        className={`absolute inset-0 z-20 touch-none ${
-          activeToolMode === "select" ? "pointer-events-none" : "cursor-crosshair pointer-events-auto"
+        className={`absolute inset-0 w-full h-full touch-none ${
+          activeToolMode === "select" ? "pointer-events-none" : "cursor-crosshair pointer-events-auto z-20"
         }`}
       />
 
       {/* Render Sticky Note Pins Overlay */}
-      <div className="pointer-events-auto absolute inset-0 z-30 overflow-hidden pointer-events-none">
+      <div className="absolute inset-0 z-30 pointer-events-none w-full h-full overflow-hidden">
         {activeSticky.map((pin) => (
           <div
             key={pin.id}
             style={{ left: `${pin.x}px`, top: `${pin.y}px` }}
             className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto"
           >
-            {/* Sticky Pin Icon */}
             <button
               type="button"
               onClick={() => setOpenedStickyId(openedStickyId === pin.id ? null : pin.id)}
@@ -374,7 +379,6 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
               <MessageSquare className="h-4 w-4 fill-slate-950" />
             </button>
 
-            {/* Expanded Sticky Card */}
             {openedStickyId === pin.id && (
               <div className="absolute left-6 top-6 z-40 w-64 rounded-xl border border-amber-300 bg-amber-100 p-3 text-slate-900 shadow-2xl animate-in fade-in zoom-in-95 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
                 <div className="mb-2 flex items-center justify-between border-b border-amber-200/60 pb-1.5 dark:border-amber-800">
@@ -407,7 +411,6 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
           </div>
         ))}
 
-        {/* New Sticky Note Input Popup */}
         {activeStickyInput && (
           <div
             style={{

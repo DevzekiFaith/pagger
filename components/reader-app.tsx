@@ -379,11 +379,11 @@ export function ReaderApp() {
                 title={activeDocument.title}
                 className="w-full flex-1 min-h-[85vh] bg-white dark:bg-zinc-950"
               />
-              <AnnotationCanvas width={docBounds.width} height={docBounds.height} />
+              <AnnotationCanvas />
             </div>
           </div>
         ) : (
-          <div ref={docContainerRef} className="relative w-full max-w-3xl px-6 py-12 sm:px-12 sm:py-20">
+          <div ref={docContainerRef} className="relative w-full max-w-3xl px-6 py-12 sm:px-12 sm:py-20 min-h-[80vh]">
             <article
               className="w-full text-[1.05rem] leading-loose tracking-[0.01em] text-zinc-800 dark:text-zinc-200"
               style={{ fontSize: `${zoom}%` }}
@@ -393,7 +393,7 @@ export function ReaderApp() {
               <h1 className="mb-8 text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">{activeDocument.title}</h1>
               <div className="whitespace-pre-wrap">{renderedContent}</div>
             </article>
-            <AnnotationCanvas width={docBounds.width} height={docBounds.height} />
+            <AnnotationCanvas />
           </div>
         )}
       </main>
