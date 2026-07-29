@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   MousePointer,
   Pen,
@@ -19,12 +19,12 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { useReaderStore } from "@/hooks/use-reader-store";
-import type { StampPreset, ToolMode } from "@/lib/types";
+import type { StampPreset } from "@/lib/types";
 
 const COLOR_PRESETS = [
   "#ef4444", // Red
-  "#f59e0b", // Amber
-  "#10b981", // Emerald
+  "#f59e0b", // Amber / Yellow
+  "#10b981", // Emerald / Green
   "#06b6d4", // Cyan
   "#3b82f6", // Blue
   "#8b5cf6", // Purple
@@ -57,12 +57,69 @@ export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarPro
   const [isShapesOpen, setIsShapesOpen] = useState(false);
   const [isStampsOpen, setIsStampsOpen] = useState(false);
 
+  // Global Keyboard Shortcuts (P = Pen, H = Highlighter, E = Eraser, Esc = Select, N = Sticky)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore when typing inside inputs or textareas
+      if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undoDrawingStroke();
+        return;
+      }
+
+      switch (e.key.toLowerCase()) {
+        case "p":
+          e.preventDefault();
+          selectPen();
+          break;
+        case "h":
+          e.preventDefault();
+          selectHighlighter();
+          break;
+        case "e":
+          e.preventDefault();
+          setToolMode("eraser");
+          break;
+        case "n":
+          e.preventDefault();
+          setToolMode("sticky");
+          break;
+        case "escape":
+          e.preventDefault();
+          setToolMode("select");
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [setToolMode, undoDrawingStroke]);
+
+  const selectPen = () => {
+    setToolMode("pen");
+    if (activePenWidth > 10) {
+      setPenWidth(3);
+    }
+  };
+
+  const selectHighlighter = () => {
+    setToolMode("highlighter");
+    if (activePenColor === "#0f172a" || activePenColor === "#ef4444") {
+      setPenColor("#f59e0b"); // Default vibrant yellow marker
+    }
+    if (activePenWidth < 8) {
+      setPenWidth(16); // Default comfortable highlighter thickness
+    }
+  };
+
   const currentShapeTool = ["rectangle", "circle", "line", "arrow"].includes(activeToolMode)
     ? activeToolMode
     : "rectangle";
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-800 bg-slate-950/90 p-2 shadow-2xl backdrop-blur-md text-slate-200">
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-800 bg-slate-950/90 p-2 shadow-2xl backdrop-blur-md text-slate-200 animate-in fade-in slide-in-from-top-2 duration-300">
       {/* Main Tool Switches */}
       <div className="flex items-center gap-1">
         {/* Select / Read mode */}
@@ -83,7 +140,7 @@ export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarPro
         {/* Freehand Stylus Pen */}
         <button
           type="button"
-          onClick={() => setToolMode("pen")}
+          onClick={selectPen}
           title="Freehand Stylus Pen (P)"
           className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
             activeToolMode === "pen"
@@ -98,11 +155,11 @@ export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarPro
         {/* Highlighter Pen */}
         <button
           type="button"
-          onClick={() => setToolMode("highlighter")}
+          onClick={selectHighlighter}
           title="Text Highlighter (H)"
           className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
             activeToolMode === "highlighter"
-              ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-900/40 font-bold"
+              ? "bg-amber-400 text-slate-950 shadow-md shadow-amber-900/40 font-bold"
               : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
           }`}
         >
@@ -307,7 +364,7 @@ export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarPro
             <input
               type="range"
               min="1"
-              max="24"
+              max="32"
               value={activePenWidth}
               onChange={(e) => setPenWidth(Number(e.target.value))}
               className="h-1.5 w-16 cursor-pointer rounded-lg bg-slate-700 accent-indigo-500"
@@ -322,7 +379,7 @@ export function AnnotationToolbar({ onOpenSignatureModal }: AnnotationToolbarPro
         <button
           type="button"
           onClick={undoDrawingStroke}
-          title="Undo Last Stroke"
+          title="Undo Last Stroke (Ctrl+Z)"
           className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition"
         >
           <RotateCcw className="h-4 w-4" />

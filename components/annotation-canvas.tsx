@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { MessageSquare, X, Trash2, Send } from "lucide-react";
 import { useReaderStore } from "@/hooks/use-reader-store";
 import type { DrawingStroke, Point, StampPreset, StudyColor } from "@/lib/types";
@@ -36,12 +36,20 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     addStickyNote,
     deleteStickyNote,
     addStampAnnotation,
-    deleteStampAnnotation,
   } = useReaderStore();
 
-  const activeStrokes = drawingStrokes.filter((s) => s.documentId === activeDocumentId);
-  const activeSticky = stickyNotes.filter((s) => s.documentId === activeDocumentId);
-  const activeStamps = stampAnnotations.filter((s) => s.documentId === activeDocumentId);
+  const activeStrokes = useMemo(
+    () => drawingStrokes.filter((s) => s.documentId === activeDocumentId),
+    [drawingStrokes, activeDocumentId]
+  );
+  const activeSticky = useMemo(
+    () => stickyNotes.filter((s) => s.documentId === activeDocumentId),
+    [stickyNotes, activeDocumentId]
+  );
+  const activeStamps = useMemo(
+    () => stampAnnotations.filter((s) => s.documentId === activeDocumentId),
+    [stampAnnotations, activeDocumentId]
+  );
 
   // Helper to convert hex to rgba
   const hexToRgba = (hex: string, alpha: number) => {
@@ -51,64 +59,68 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
   };
 
-  // Main Canvas Rendering Engine
-  const redrawCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  // Image cache for signatures
+  const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const drawPresetStamp = (ctx: CanvasRenderingContext2D, x: number, y: number, preset: StampPreset) => {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(-0.06);
 
-    // 1. Draw saved strokes
-    activeStrokes.forEach((stroke) => {
-      drawSingleStroke(ctx, stroke);
-    });
+    const w = 150;
+    const h = 46;
 
-    // 2. Draw live preview stroke
-    if (isPointerDown && currentPoints.length > 0 && activeToolMode !== "select" && activeToolMode !== "sticky" && activeToolMode !== "stamp") {
-      const tempStroke: DrawingStroke = {
-        id: "temp",
-        documentId: activeDocumentId || "",
-        tool: activeToolMode as DrawingStroke["tool"],
-        points: currentPoints,
-        color: activePenColor,
-        width: activePenWidth,
-        createdAt: new Date().toISOString(),
-      };
-      drawSingleStroke(ctx, tempStroke);
+    // Stamp Border
+    const color = preset === "APPROVED" ? "#10b981" : preset === "CONFIDENTIAL" ? "#ef4444" : "#f59e0b";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+
+    // Inner dashed border
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8);
+
+    // Stamp Text
+    ctx.font = "900 15px sans-serif";
+    ctx.fillStyle = color;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(preset, 0, 0);
+
+    ctx.restore();
+  };
+
+  const drawSignatureStamp = (ctx: CanvasRenderingContext2D, x: number, y: number, dataUrl: string) => {
+    let img = imageCacheRef.current.get(dataUrl);
+    if (!img) {
+      img = new Image();
+      img.src = dataUrl;
+      imageCacheRef.current.set(dataUrl, img);
+      img.onload = () => redrawCanvas();
     }
 
-    // 3. Draw Stamps & Signatures
-    activeStamps.forEach((stamp) => {
+    if (img.complete && img.naturalWidth > 0) {
       ctx.save();
-      if (stamp.type === "preset" && stamp.presetLabel) {
-        drawPresetStamp(ctx, stamp.x, stamp.y, stamp.presetLabel);
-      } else if (stamp.type === "signature" && stamp.signatureDataUrl) {
-        drawSignatureStamp(ctx, stamp.x, stamp.y, stamp.signatureDataUrl);
-      }
+      ctx.drawImage(img, x - 75, y - 30, 150, 60);
       ctx.restore();
-    });
-  }, [activeStrokes, isPointerDown, currentPoints, activeToolMode, activePenColor, activePenWidth, activeStamps, activeDocumentId]);
-
-  useEffect(() => {
-    redrawCanvas();
-  }, [redrawCanvas]);
+    }
+  };
 
   const drawSingleStroke = (ctx: CanvasRenderingContext2D, stroke: DrawingStroke) => {
     if (stroke.points.length === 0) return;
 
     ctx.save();
-    ctx.lineCap = "round";
+    ctx.lineCap = stroke.tool === "highlighter" ? "square" : "round";
     ctx.lineJoin = "round";
 
     if (stroke.tool === "highlighter") {
-      ctx.strokeStyle = hexToRgba(stroke.color, 0.4);
-      ctx.lineWidth = stroke.width * 4;
-      ctx.globalCompositeOperation = "source-over"; // Works smoothly over text canvas
+      ctx.strokeStyle = hexToRgba(stroke.color, 0.45);
+      ctx.lineWidth = Math.max(12, stroke.width * 3.5);
+      ctx.globalCompositeOperation = "source-over";
     } else if (stroke.tool === "eraser") {
       ctx.strokeStyle = "rgba(255, 255, 255, 1)";
-      ctx.lineWidth = stroke.width * 6;
+      ctx.lineWidth = stroke.width * 5;
       ctx.globalCompositeOperation = "destination-out";
     } else {
       ctx.strokeStyle = stroke.color;
@@ -119,24 +131,31 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     const points = stroke.points;
 
     if (stroke.tool === "pen" || stroke.tool === "highlighter" || stroke.tool === "eraser") {
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
+      if (points.length === 1) {
+        // Single tap dot
+        ctx.beginPath();
+        ctx.arc(points[0].x, points[0].y, ctx.lineWidth / 2, 0, 2 * Math.PI);
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
 
-      for (let i = 1; i < points.length; i++) {
-        const p1 = points[i - 1];
-        const p2 = points[i];
-        
-        // Stylus pressure variable width support
-        if (stroke.tool === "pen" && p2.pressure && p2.pressure > 0) {
-          ctx.lineWidth = Math.max(1, stroke.width * (p2.pressure * 2.2));
+        for (let i = 1; i < points.length; i++) {
+          const p1 = points[i - 1];
+          const p2 = points[i];
+          
+          if (stroke.tool === "pen" && p2.pressure && p2.pressure > 0) {
+            ctx.lineWidth = Math.max(1, stroke.width * (p2.pressure * 2.2));
+          }
+
+          const midX = (p1.x + p2.x) / 2;
+          const midY = (p1.y + p2.y) / 2;
+          ctx.quadraticCurveTo(p1.x, p1.y, midX, midY);
         }
-
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
-        ctx.quadraticCurveTo(p1.x, p1.y, midX, midY);
+        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+        ctx.stroke();
       }
-      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-      ctx.stroke();
     } else if (stroke.tool === "rectangle") {
       const start = points[0];
       const end = points[points.length - 1];
@@ -153,7 +172,7 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
       const centerX = Math.min(start.x, end.x) + radiusX;
       const centerY = Math.min(start.y, end.y) + radiusY;
       ctx.beginPath();
-      ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
+      ctx.ellipse(centerX, centerY, Math.max(2, radiusX), Math.max(2, radiusY), 0, 0, 2 * Math.PI);
       ctx.stroke();
     } else if (stroke.tool === "line") {
       const start = points[0];
@@ -194,51 +213,67 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     ctx.restore();
   };
 
-  const drawPresetStamp = (ctx: CanvasRenderingContext2D, x: number, y: number, preset: StampPreset) => {
+  // Main Canvas Rendering Engine
+  const redrawCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    
+    // Set actual display size vs canvas pixel size for retina crispness
+    if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+    }
+
     ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(-0.08); // Slight stylish tilt like real rubber stamp
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
 
-    const w = 150;
-    const h = 48;
+    // 1. Draw saved strokes
+    activeStrokes.forEach((stroke) => {
+      drawSingleStroke(ctx, stroke);
+    });
 
-    // Stamp Border
-    ctx.strokeStyle = preset === "APPROVED" ? "#10b981" : preset === "CONFIDENTIAL" ? "#ef4444" : "#f59e0b";
-    ctx.lineWidth = 4;
-    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    // 2. Draw live preview stroke
+    if (isPointerDown && currentPoints.length > 0 && activeToolMode !== "select" && activeToolMode !== "sticky" && activeToolMode !== "stamp") {
+      const tempStroke: DrawingStroke = {
+        id: "temp",
+        documentId: activeDocumentId || "",
+        tool: activeToolMode as DrawingStroke["tool"],
+        points: currentPoints,
+        color: activePenColor,
+        width: activePenWidth,
+        createdAt: new Date().toISOString(),
+      };
+      drawSingleStroke(ctx, tempStroke);
+    }
 
-    // Inner dashed border
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    ctx.strokeRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8);
-
-    // Stamp Text
-    ctx.font = "900 16px sans-serif";
-    ctx.fillStyle = ctx.strokeStyle;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(preset, 0, 0);
+    // 3. Draw Stamps & Signatures
+    activeStamps.forEach((stamp) => {
+      if (stamp.type === "preset" && stamp.presetLabel) {
+        drawPresetStamp(ctx, stamp.x, stamp.y, stamp.presetLabel);
+      } else if (stamp.type === "signature" && stamp.signatureDataUrl) {
+        drawSignatureStamp(ctx, stamp.x, stamp.y, stamp.signatureDataUrl);
+      }
+    });
 
     ctx.restore();
-  };
+  }, [activeStrokes, isPointerDown, currentPoints, activeToolMode, activePenColor, activePenWidth, activeStamps, activeDocumentId, width, height]);
 
-  const drawSignatureStamp = (ctx: CanvasRenderingContext2D, x: number, y: number, dataUrl: string) => {
-    const img = new Image();
-    img.src = dataUrl;
-    img.onload = () => {
-      ctx.drawImage(img, x - 75, y - 30, 150, 60);
-    };
-  };
+  useEffect(() => {
+    redrawCanvas();
+  }, [redrawCanvas]);
 
   const getCoordinates = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
     return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
       pressure: e.pointerType === "pen" && e.pressure ? e.pressure : 0.5,
     };
   };
@@ -264,7 +299,7 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
           addStampAnnotation(pt.x, pt.y, 150, 60, "signature", undefined, sig.dataUrl);
         }
       } else {
-        addStampAnnotation(pt.x, pt.y, 150, 48, "preset", activeStampPreset);
+        addStampAnnotation(pt.x, pt.y, 150, 46, "preset", activeStampPreset);
       }
       return;
     }
@@ -313,8 +348,7 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
     <div ref={containerRef} className="relative w-full h-full">
       <canvas
         ref={canvasRef}
-        width={width}
-        height={height}
+        style={{ width: `${width}px`, height: `${height}px` }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -324,12 +358,12 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
       />
 
       {/* Render Sticky Note Pins Overlay */}
-      <div className="pointer-events-auto absolute inset-0 z-30 overflow-hidden">
+      <div className="pointer-events-auto absolute inset-0 z-30 overflow-hidden pointer-events-none">
         {activeSticky.map((pin) => (
           <div
             key={pin.id}
-            style={{ left: `${(pin.x / width) * 100}%`, top: `${(pin.y / height) * 100}%` }}
-            className="absolute -translate-x-1/2 -translate-y-1/2"
+            style={{ left: `${pin.x}px`, top: `${pin.y}px` }}
+            className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto"
           >
             {/* Sticky Pin Icon */}
             <button
@@ -377,10 +411,10 @@ export function AnnotationCanvas({ width, height }: AnnotationCanvasProps) {
         {activeStickyInput && (
           <div
             style={{
-              left: `${(activeStickyInput.x / width) * 100}%`,
-              top: `${(activeStickyInput.y / height) * 100}%`,
+              left: `${activeStickyInput.x}px`,
+              top: `${activeStickyInput.y}px`,
             }}
-            className="absolute z-50 -translate-x-1/2 -translate-y-1/2 w-72 rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-2xl backdrop-blur-md"
+            className="absolute z-50 -translate-x-1/2 -translate-y-1/2 w-72 rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-2xl backdrop-blur-md pointer-events-auto"
           >
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-bold text-white">Add Sticky Comment</span>
